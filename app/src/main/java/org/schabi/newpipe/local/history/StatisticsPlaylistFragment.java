@@ -8,15 +8,25 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.google.android.material.snackbar.Snackbar;
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.Toolbar;
+import androidx.appcompat.widget.TooltipCompat;
+
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.view.KeyEvent;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.text.TextWatcher;
+import android.text.Editable;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -57,6 +67,13 @@ public class StatisticsPlaylistFragment
     private ImageView sortButtonIcon;
     private TextView sortButtonText;
 
+    // search fields
+    private View searchToolbarContainer;
+    private EditText searchEditText;
+    private View searchClear;
+    private TextWatcher textWatcher;
+    protected String searchString;
+
     @State
     protected Parcelable itemsListState;
 
@@ -73,15 +90,24 @@ public class StatisticsPlaylistFragment
     StatisticSortMode sortMode = StatisticSortMode.LAST_PLAYED;
 
     protected List<StreamStatisticsEntry> processResult(final List<StreamStatisticsEntry> results) {
+        List<StreamStatisticsEntry> items = new ArrayList<>();
+        if (!TextUtils.isEmpty(searchString)) {
+            for (StreamStatisticsEntry s : results) {
+                if (s.title.toLowerCase().contains(searchString.toLowerCase()))
+                    items.add(s);
+            }
+        } else {
+            items = results;
+        }
         switch (sortMode) {
             case LAST_PLAYED:
-                Collections.sort(results, (left, right) ->
+                Collections.sort(items, (left, right) ->
                     right.latestAccessDate.compareTo(left.latestAccessDate));
-                return results;
+                return items;
             case MOST_PLAYED:
-                Collections.sort(results, (left, right) ->
-                        Long.compare(right.watchCount, left.watchCount));
-                return results;
+                Collections.sort(items, (left, right) ->
+                    Long.compare(right.watchCount, left.watchCount));
+                return items;
             default: return null;
         }
     }
@@ -140,12 +166,18 @@ public class StatisticsPlaylistFragment
         sortButton = headerRootLayout.findViewById(R.id.sortButton);
         sortButtonIcon = headerRootLayout.findViewById(R.id.sortButtonIcon);
         sortButtonText = headerRootLayout.findViewById(R.id.sortButtonText);
+
+        Toolbar toolbar = headerRootLayout.findViewById(R.id.toolbar_statistic);
+        searchToolbarContainer = toolbar.findViewById(R.id.toolbar_search_container);
+        searchEditText = toolbar.findViewById(R.id.toolbar_search_edit_text);
+        searchClear = toolbar.findViewById(R.id.toolbar_search_clear);
         return headerRootLayout;
     }
 
     @Override
     protected void initListeners() {
         super.initListeners();
+        initSearchListeners();
 
         itemListAdapter.setSelectedListener(new OnClickGesture<LocalItem>() {
             @Override
@@ -235,6 +267,7 @@ public class StatisticsPlaylistFragment
     public void onPause() {
         super.onPause();
         itemsListState = itemsList.getLayoutManager().onSaveInstanceState();
+        hideKeyboardSearch();
     }
 
     @Override
@@ -245,6 +278,8 @@ public class StatisticsPlaylistFragment
         if (headerBackgroundButton != null) headerBackgroundButton.setOnClickListener(null);
         if (headerPlayAllButton != null) headerPlayAllButton.setOnClickListener(null);
         if (headerPopupButton != null) headerPopupButton.setOnClickListener(null);
+
+        unsetSearchListeners();
 
         if (databaseSubscription != null) databaseSubscription.cancel();
         databaseSubscription = null;
@@ -339,6 +374,85 @@ public class StatisticsPlaylistFragment
     }
 
     /*//////////////////////////////////////////////////////////////////////////
+    // Search
+    //////////////////////////////////////////////////////////////////////////*/
+
+    private void initSearchListeners() {
+        searchClear.setOnClickListener(v -> {
+            if (TextUtils.isEmpty(searchEditText.getText())) {
+                hideKeyboardSearch();
+                return;
+            }
+            searchEditText.setText("");
+            showKeyboardSearch();
+            startLoading(true);
+        });
+        TooltipCompat.setTooltipText(searchClear, getString(R.string.clear));
+
+        searchEditText.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override
+            public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+                if ((event != null)
+                        && ((event.getKeyCode() == KeyEvent.KEYCODE_ENTER)
+                        || (event.getAction() == EditorInfo.IME_ACTION_SEARCH))) {
+                    searchString = searchEditText.getText().toString();
+                    hideKeyboardSearch();
+                    startLoading(true);
+                    return true;
+                }
+                return false;
+            }
+        });
+        if (textWatcher != null) searchEditText.removeTextChangedListener(textWatcher);
+        textWatcher = new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                searchString = searchEditText.getText().toString();
+            }
+        };
+        searchEditText.addTextChangedListener(textWatcher);
+    }
+
+    private void unsetSearchListeners() {
+        searchClear.setOnClickListener(null);
+        searchClear.setOnLongClickListener(null);
+        searchEditText.setOnClickListener(null);
+        searchEditText.setOnFocusChangeListener(null);
+        searchEditText.setOnEditorActionListener(null);
+        if (textWatcher != null) searchEditText.removeTextChangedListener(textWatcher);
+        textWatcher = null;
+    }
+
+    private void hideKeyboardSearch() {
+        if (searchEditText == null) return;
+
+        InputMethodManager imm = (InputMethodManager) activity.getSystemService(
+                Context.INPUT_METHOD_SERVICE);
+        imm.hideSoftInputFromWindow(searchEditText.getWindowToken(),
+                InputMethodManager.HIDE_NOT_ALWAYS);
+
+        searchEditText.clearFocus();
+    }
+
+    private void showKeyboardSearch() {
+        if (searchEditText == null) return;
+
+        if (searchEditText.requestFocus()) {
+            InputMethodManager imm = (InputMethodManager) activity.getSystemService(
+                    Context.INPUT_METHOD_SERVICE);
+            imm.showSoftInput(searchEditText, InputMethodManager.SHOW_IMPLICIT);
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
     // Utils
     //////////////////////////////////////////////////////////////////////////*/
 
@@ -354,6 +468,7 @@ public class StatisticsPlaylistFragment
             sortButtonIcon.setImageResource(ThemeHelper.getIconByAttr(R.attr.filter, getContext()));
             sortButtonText.setText(R.string.title_most_played);
         }
+        hideKeyboardSearch();
         startLoading(true);
     }
 

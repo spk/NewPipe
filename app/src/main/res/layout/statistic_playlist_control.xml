@@ -6,6 +6,30 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_statistic"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="?attr/colorPrimary"
+        android:gravity="center_vertical"
+        android:minHeight="?attr/actionBarSize">
+
+        <Spinner
+            android:id="@+id/toolbar_spinner"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical|left"
+            android:visibility="visible"
+            tools:ignore="RtlHardcoded"
+            tools:visibility="visible"/>
+
+        <include
+            android:id="@+id/toolbar_search_container"
+            layout="@layout/toolbar_search_layout"
+            android:visibility="visible"
+            tools:visibility="visible"/>
+    </androidx.appcompat.widget.Toolbar>
+
     <RelativeLayout
         android:id="@+id/sortButton"
         android:layout_width="wrap_content"
